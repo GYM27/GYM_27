@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="icon" sizes="192x192" href="icon-192.png">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    
+    <script>
+        // Regista o Service Worker
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/service-worker.js')
+                    .then(reg => {
+                        console.log('Service Worker registado com sucesso:', reg);
+                    })
+                    .catch(err => {
+                        console.log('Registo do Service Worker falhou:', err);
+                    });
+            });
+        }
+    </script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Análise de Jogo de Futebol</title>
+    <style>
+        :root {
+            --primary-color: #4CAF50;
+            --secondary-color: #f4f4f4;
+            --text-color: #333;
+            --selected-team-color: #90ee90;
+            --opponent-color: #ff6347;
+            --light-gray: #d3d3d3;
+            --border-color: #ccc;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            text-align: center;
+            background-color: var(--secondary-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+        }
+
+        h1, h3 {
+            color: var(--primary-color);
+        }
+
+        canvas {
+            border: 2px solid var(--text-color);
+            background-color: #006400;
+            cursor: crosshair;
+            margin-top: 20px;
+            touch-action: none;
+        }
+
+        #app-container {
+            max-width: 900px;
+            margin: auto;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        section {
+            margin-bottom: 25px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 20px;
+        }
+
+        #setup button, #controls button, #possession button, #eventMenu button {
+            padding: 12px 20px;
+            margin: 5px;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s ease, transform 0.1s ease;
+        }
+
+        #setup button:active, #controls button:active, #possession button:active, #eventMenu button:active {
+            transform: scale(0.98);
+        }
+        
+        #setup button:hover {
+            background-color: #45a049;
+        }
+        
+        #setup button.selected {
+            border: 2px solid #333;
+        }
+
+        #startGame:disabled {
+            background-color: var(--light-gray);
+            cursor: not-allowed;
+        }
+
+        #possession button {
+            background-color: #eee;
+        }
+
+        #possession button.selected {
+            background-color: var(--selected-team-color);
+            font-weight: bold;
+        }
+
+        #possession button.selected-opponent {
+            background-color: var(--opponent-color);
+            color: white;
+            font-weight: bold;
+        }
+
+        #timer {
+            font-size: 3em;
+            font-weight: bold;
+            margin: 10px 0;
+            color: #555;
+        }
+
+        #possession-info {
+            font-size: 1.1em;
+            margin-top: 10px;
+        }
+
+        #eventMenu {
+            position: absolute;
+            background: white;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+            padding: 10px;
+            display: none;
+            z-index: 10;
+        }
+
+        #eventMenu button {
+            box-sizing: border-box;
+            display: block;
+            width: auto;
+            margin: 5px 0;
+            background-color: #f0f0f0;
+        }
+        
+        #eventMenu button:hover {
+            background-color: #e0e0e0;
+        }
+
+        #eventMenu .menu-column {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        #player-input {
+            box-sizing: border-box;
+            width: 150px;
+            margin: 5px 0;
+            padding: 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+        }
+
+        #subMenu {
+            position: absolute;
+            background: #f9f9f9;
+            border: 1px solid #ddd;
+            padding: 8px;
+            border-radius: 6px;
+            display: none;
+            flex-direction: column;
+            z-index: 11;
+        }
+        
+        .disabled {
+            display: none;
+        }
+
+        #events-log ul {
+            list-style-type: none;
+            padding: 0;
+            text-align: left;
+        }
+
+        #events-log li {
+            background-color: #f9f9f9;
+            border: 1px solid #eee;
+            margin-bottom: 5px;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <div id="app-container">
+        <h1>Análise de Jogo de Futebol</h1>
+        
+        <section id="setup">
+            <h3>Configuração Inicial</h3>
+            <p>Selecione o lado do campo que a Equipa da Casa defende na 1ª parte.</p>
+            <button data-team="Casa" data-side="left">Casa defende baliza esquerda</button>
+            <button data-team="Casa" data-side="right">Casa defende baliza direita</button>
+            <button id="startGame" disabled>Iniciar Jogo</button>
+        </section>
+
+        <main id="game" class="disabled">
+            <div id="timer">00:00</div>
+            <div id="possession">
+                <button id="teamCasa">Equipa da Casa</button>
+                <button id="teamFora">Equipa de Fora</button>
+                <div id="possession-info">Posse: Casa <span id="possessionCasa">0s</span> | Fora <span id="possessionFora">0s</span></div>
+            </div>
+            
+            <canvas id="field" width="600" height="400"></canvas>
+
+            <div id="eventMenu">
+                <div class="menu-column">
+                    <button data-event="Remate">Remate</button>
+                    <button data-event="Cruzamento">Cruzamento</button>
+                    <button data-event="Golo">Golo</button>
+                    <button data-event="Canto">Canto</button>
+                    <button data-event="Passe">Passe</button>
+                    <button data-event="Perda de Bola">Perda de Bola</button>
+                    <button data-event="Desarme">Desarme</button>
+                    <button data-event="Falta">Falta</button>
+                    <input type="text" id="player-input" placeholder="Nome do Jogador">
+                    <button id="voice-note">Gravar Nota de Voz</button>
+                </div>
+            </div>
+            <div id="subMenu"></div>
+            
+            <section id="controls">
+                <button id="start-timer">Iniciar Partida</button>
+                <button id="end-first-half">Final da 1ª Parte</button>
+                <button id="start-second-half">2ª Parte</button>
+                <button id="end-match">Final do Jogo</button>
+                <button id="export-csv">Exportar CSV</button>
+            </section>
+            
+            <section id="events-log">
+                <h3>Eventos Registados</h3>
+                <ul id="eventList"></ul>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        // 1. Definições e Estado da Aplicação
+        const elements = {
+            setup: document.getElementById('setup'),
+            game: document.getElementById('game'),
+            startGameBtn: document.getElementById('startGame'),
+            canvas: document.getElementById('field'),
+            eventMenu: document.getElementById('eventMenu'),
+            subMenu: document.getElementById('subMenu'),
+            playerInput: document.getElementById('player-input'),
+            eventList: document.getElementById('eventList'),
+            timerDisplay: document.getElementById('timer'),
+            possessionCasa: document.getElementById('possessionCasa'),
+            possessionFora: document.getElementById('possessionFora'),
+            teamCasaBtn: document.getElementById('teamCasa'),
+            teamForaBtn: document.getElementById('teamFora'),
+            startMatchBtn: document.getElementById('start-timer'),
+            endFirstHalfBtn: document.getElementById('end-first-half'),
+            startSecondHalfBtn: document.getElementById('start-second-half'),
+            endMatchBtn: document.getElementById('end-match')
+        };
+        
+        const ctx = elements.canvas.getContext('2d');
+        let appState = {
+            events: [],
+            defenseDirection: {},
+            currentClick: { x: null, y: null, corredor: null, setor: null, relativeZone: null },
+            timer: { 
+                interval: null, 
+                startTime: 0, 
+                halfElapsedTime: 0,
+                totalElapsedTime: 0, // NOVO: Tempo total de jogo
+                isPaused: false, 
+                currentHalf: 1 // NOVO: Parte atual do jogo
+            },
+            possession: { team: null, start: 0, casaTime: 0, foraTime: 0 },
+            eventVisuals: []
+        };
+        
+        const eventOptions = {
+            'Remate': ['À Baliza', 'Ao Lado', 'Interceptado'],
+            'Passe': ['Curto', 'Longo'],
+            'Cruzamento': ['Lado Direito', 'Lado Esquerdo'],
+            'Canto': ['Lado Direito', 'Lado Esquerdo'],
+            'Falta': ['Ofensiva', 'Defensiva'],
+            'Golo': ['Normal', 'Livre Direto', 'Penálti', 'Cabeça']
+        };
+
+        // 2. Funções de Visualização (Canvas)
+        function drawField() {
+            ctx.clearRect(0, 0, elements.canvas.width, elements.canvas.height);
+            ctx.fillStyle = '#006400';
+            ctx.fillRect(0, 0, elements.canvas.width, elements.canvas.height);
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = 2;
+            
+            ctx.strokeRect(10, 10, elements.canvas.width - 20, elements.canvas.height - 20);
+            ctx.beginPath();
+            ctx.moveTo(elements.canvas.width / 2, 10);
+            ctx.lineTo(elements.canvas.width / 2, elements.canvas.height - 10);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(elements.canvas.width / 2, elements.canvas.height / 2, 30, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.strokeRect(10, elements.canvas.height / 2 - 80, 100, 160);
+            ctx.strokeRect(elements.canvas.width - 110, elements.canvas.height / 2 - 80, 100, 160);
+
+            // Linhas para dividir em setores (horizontais)
+            ctx.strokeStyle = 'rgba(255, 255, 0, 0.5)';
+            ctx.beginPath();
+            ctx.moveTo(elements.canvas.width / 3, 10);
+            ctx.lineTo(elements.canvas.width / 3, elements.canvas.height - 10);
+            ctx.moveTo((elements.canvas.width / 3) * 2, 10);
+            ctx.lineTo((elements.canvas.width / 3) * 2, elements.canvas.height - 10);
+            ctx.stroke();
+            
+            // Linhas para dividir em corredores (verticais)
+            ctx.strokeStyle = 'rgba(0, 255, 255, 0.5)';
+            ctx.beginPath();
+            ctx.moveTo(10, elements.canvas.height / 3);
+            ctx.lineTo(elements.canvas.width - 10, elements.canvas.height / 3);
+            ctx.moveTo(10, (elements.canvas.height / 3) * 2);
+            ctx.lineTo(elements.canvas.width - 10, (elements.canvas.height / 3) * 2);
+            ctx.stroke();
+
+            if (appState.possession.team) {
+                const teamHasPossession = appState.possession.team;
+                const defenseSide = appState.defenseDirection[teamHasPossession];
+                const attackSide = defenseSide === 'left' ? 'right' : 'left';
+                
+                ctx.fillStyle = 'white';
+                ctx.beginPath();
+                
+                if (attackSide === 'right') {
+                    ctx.moveTo(elements.canvas.width - 50, elements.canvas.height / 2);
+                    ctx.lineTo(elements.canvas.width - 100, elements.canvas.height / 2 - 20);
+                    ctx.lineTo(elements.canvas.width - 100, elements.canvas.height / 2 + 20);
+                } else {
+                    ctx.moveTo(50, elements.canvas.height / 2);
+                    ctx.lineTo(100, elements.canvas.height / 2 - 20);
+                    ctx.lineTo(100, elements.canvas.height / 2 + 20);
+                }
+                ctx.closePath();
+                ctx.fill();
+            }
+
+            appState.eventVisuals.forEach(ev => {
+                ctx.beginPath();
+                ctx.arc(ev.x, ev.y, 5, 0, Math.PI * 2);
+                ctx.fillStyle = ev.color;
+                ctx.fill();
+            });
+        }
+        
+        function getZoneAndCorridor(x, y) {
+            let setor, corredor, relativeZone;
+            
+            const team = appState.possession.team;
+            if (team && appState.defenseDirection[team]) {
+                const defenseSide = appState.defenseDirection[team];
+                const attackSide = defenseSide === 'left' ? 'right' : 'left';
+
+                const isAttackSector = (attackSide === 'right' && x > (elements.canvas.width / 3) * 2) ||
+                                       (attackSide === 'left' && x < elements.canvas.width / 3);
+                const isDefenseSector = (attackSide === 'right' && x < elements.canvas.width / 3) ||
+                                        (attackSide === 'left' && x > (elements.canvas.width / 3) * 2);
+
+                if (isAttackSector) {
+                    setor = 'Setor de Ataque';
+                    relativeZone = 'Zona de Ataque';
+                } else if (isDefenseSector) {
+                    setor = 'Setor de Defesa';
+                    relativeZone = 'Zona de Defesa';
+                } else {
+                    setor = 'Setor do Meio-campo';
+                    relativeZone = 'Zona do Meio-campo';
+                }
+                
+                if (attackSide === 'right') {
+                    if (y < elements.canvas.height / 3) {
+                        corredor = 'Corredor Esquerdo';
+                    } else if (y < (elements.canvas.height / 3) * 2) {
+                        corredor = 'Corredor Central';
+                    } else {
+                        corredor = 'Corredor Direito';
+                    }
+                } else {
+                    if (y < elements.canvas.height / 3) {
+                        corredor = 'Corredor Direito';
+                    } else if (y < (elements.canvas.height / 3) * 2) {
+                        corredor = 'Corredor Central';
+                    } else {
+                        corredor = 'Corredor Esquerdo';
+                    }
+                }
+
+            } else {
+                setor = 'N/A';
+                corredor = 'N/A';
+                relativeZone = 'N/A';
+            }
+            
+            return { setor, corredor, relativeZone };
+        }
+
+        // 3. Funções de Controlo de Jogo
+        function setDefense(team, side) {
+            appState.defenseDirection[team] = side;
+            
+            const opponentTeam = team === 'Casa' ? 'Fora' : 'Casa';
+            const opponentSide = side === 'left' ? 'right' : 'left';
+            appState.defenseDirection[opponentTeam] = opponentSide;
+
+            const casaDefinida = !!appState.defenseDirection.Casa;
+            const foraDefinida = !!appState.defenseDirection.Fora;
+            elements.startGameBtn.disabled = !(casaDefinida && foraDefinida);
+        }
+
+        function startGame() {
+            elements.setup.classList.add('disabled');
+            elements.game.classList.remove('disabled');
+            drawField();
+        }
+
+        function startMatch() {
+            if (appState.timer.interval || Object.keys(appState.defenseDirection).length !== 2) return;
+            
+            // NOVO: Define a hora de início com base no tempo total já decorrido
+            appState.timer.startTime = Date.now() - appState.timer.halfElapsedTime * 1000;
+            appState.timer.isPaused = false;
+            
+            appState.timer.interval = setInterval(() => {
+                const now = Date.now();
+                appState.timer.halfElapsedTime = Math.floor((now - appState.timer.startTime) / 1000);
+                
+                // NOVO: Calcula o tempo total para o export
+                appState.timer.totalElapsedTime = (appState.timer.currentHalf === 1 ? appState.timer.halfElapsedTime : appState.timer.halfElapsedTime + 45 * 60);
+
+                const minutes = Math.floor(appState.timer.halfElapsedTime / 60);
+                const seconds = appState.timer.halfElapsedTime % 60;
+                elements.timerDisplay.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+                if (appState.possession.team) {
+                    drawField();
+                }
+            }, 1000);
+        }
+
+        function pauseTimer() {
+            if (!appState.timer.interval) return;
+            clearInterval(appState.timer.interval);
+            appState.timer.interval = null;
+            appState.timer.isPaused = true;
+            if (appState.possession.team) endPossession();
+        }
+
+        function stopTimer() {
+            pauseTimer();
+            appState.timer.halfElapsedTime = 0;
+            appState.timer.totalElapsedTime = 0;
+            appState.timer.currentHalf = 1;
+            elements.timerDisplay.textContent = '00:00';
+            appState.possession.casaTime = 0;
+            appState.possession.foraTime = 0;
+            elements.possessionCasa.textContent = '0s';
+            elements.possessionFora.textContent = '0s';
+            appState.events = [];
+            elements.eventList.innerHTML = '';
+            appState.eventVisuals = [];
+            drawField();
+        }
+        
+        function endFirstHalf() {
+            pauseTimer();
+            if (appState.possession.team) endPossession();
+            exportCSV('primeira_parte.csv');
+            
+            // NOVO: Reset do cronómetro para a 2ª parte
+            appState.timer.halfElapsedTime = 0;
+            elements.timerDisplay.textContent = '00:00';
+            appState.timer.isPaused = true;
+
+            alert('Fim da 1ª parte. Ficheiro exportado!');
+        }
+
+        function startSecondHalf() {
+            if (!appState.timer.isPaused || appState.timer.currentHalf !== 1) return;
+            
+            appState.timer.currentHalf = 2;
+            
+            const temp = appState.defenseDirection.Casa;
+            appState.defenseDirection.Casa = appState.defenseDirection.Fora;
+            appState.defenseDirection.Fora = temp;
+            
+            drawField();
+            startMatch();
+            alert('Início da 2ª parte. Cronómetro a correr!');
+        }
+        
+        function endMatch() {
+            pauseTimer();
+            if (appState.possession.team) endPossession();
+            exportCSV('jogo_completo.csv');
+            stopTimer();
+            alert('Fim do jogo. Ficheiro final exportado e aplicação reiniciada.');
+        }
+
+        function startPossession(team) {
+            if (appState.possession.team === team || appState.timer.isPaused) return;
+            if (appState.possession.team) endPossession();
+            
+            appState.possession.team = team;
+            appState.possession.start = Date.now();
+            elements.teamCasaBtn.className = team === 'Casa' ? 'selected' : '';
+            elements.teamForaBtn.className = team === 'Fora' ? 'selected' : '';
+
+            const otherTeamBtn = team === 'Casa' ? elements.teamForaBtn : elements.teamCasaBtn;
+            otherTeamBtn.classList.add('selected-opponent');
+
+            drawField();
+        }
+
+        function endPossession() {
+            const elapsed = Math.floor((Date.now() - appState.possession.start) / 1000);
+            if (appState.possession.team === 'Casa') {
+                appState.possession.casaTime += elapsed;
+                elements.possessionCasa.textContent = `${appState.possession.casaTime}s`;
+            } else {
+                appState.possession.foraTime += elapsed;
+                elements.possessionFora.textContent = `${appState.possession.foraTime}s`;
+            }
+        }
+
+        // 4. Funções de Eventos e Dados
+        function handleInputEvent(e) {
+            e.preventDefault();
+            if (appState.timer.isPaused) return;
+
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+            const rect = elements.canvas.getBoundingClientRect();
+            appState.currentClick.x = clientX - rect.left;
+            appState.currentClick.y = clientY - rect.top;
+            
+            const { setor, corredor, relativeZone } = getZoneAndCorridor(appState.currentClick.x, appState.currentClick.y);
+            appState.currentClick.setor = setor;
+            appState.currentClick.corredor = corredor;
+            appState.currentClick.relativeZone = relativeZone;
+
+            elements.subMenu.style.display = 'none';
+            elements.eventMenu.style.display = 'block';
+
+            const menuWidth = elements.eventMenu.offsetWidth;
+            const spaceRight = window.innerWidth - clientX;
+            
+            if (spaceRight < menuWidth) {
+                elements.eventMenu.style.left = `${clientX - menuWidth}px`;
+            } else {
+                elements.eventMenu.style.left = `${clientX}px`;
+            }
+
+            elements.eventMenu.style.top = `${clientY}px`;
+        }
+
+        function showSubMenu(e) {
+            const eventType = e.target.dataset.event;
+            elements.subMenu.innerHTML = '';
+            
+            const options = eventOptions[eventType];
+            if (!options) {
+                registerEvent(eventType, 'N/A');
+                return;
+            }
+
+            options.forEach(opt => {
+                const button = document.createElement('button');
+                button.textContent = opt;
+                button.onclick = () => registerEvent(eventType, opt);
+                elements.subMenu.appendChild(button);
+            });
+            
+            elements.subMenu.style.display = 'flex';
+            
+            const menuRect = elements.eventMenu.getBoundingClientRect();
+            const subMenuWidth = elements.subMenu.offsetWidth;
+            const spaceRight = window.innerWidth - menuRect.right;
+            const spaceLeft = menuRect.left;
+            
+            if (spaceRight > subMenuWidth + 20) {
+                elements.subMenu.style.left = `${menuRect.right + 10}px`;
+                elements.subMenu.style.top = `${menuRect.top}px`;
+            } else if (spaceLeft > subMenuWidth + 20) {
+                elements.subMenu.style.left = `${menuRect.left - subMenuWidth - 10}px`;
+                elements.subMenu.style.top = `${menuRect.top}px`;
+            } else {
+                elements.subMenu.style.left = `${menuRect.left}px`;
+                elements.subMenu.style.top = `${menuRect.bottom + 10}px`;
+            }
+        }
+        
+        function registerEvent(eventType, option) {
+            const player = elements.playerInput.value || 'Desconhecido';
+            
+            // NOVO: Usa o tempo da metade atual e a metade para o registo do evento
+            const half = appState.timer.currentHalf;
+            const minuteInHalf = Math.floor(appState.timer.halfElapsedTime / 60) || 0;
+            const totalMinute = Math.floor(appState.timer.totalElapsedTime / 60) || 0;
+
+            const team = appState.possession.team || 'Nenhuma';
+            
+            const newEvent = {
+                half,
+                minuteInHalf,
+                totalMinute,
+                eventType,
+                option,
+                team,
+                player,
+                setor: appState.currentClick.setor,
+                corredor: appState.currentClick.corredor,
+                relativeZone: appState.currentClick.relativeZone,
+                x: appState.currentClick.x,
+                y: appState.currentClick.y,
+                note: ''
+            };
+            appState.events.push(newEvent);
+
+            appState.eventVisuals.push({
+                x: appState.currentClick.x,
+                y: appState.currentClick.y,
+                color: team === 'Casa' ? 'blue' : 'red'
+            });
+
+            updateEventList(newEvent);
+            
+            elements.eventMenu.style.display = 'none';
+            elements.subMenu.style.display = 'none';
+        }
+
+        function updateEventList(event) {
+            // NOVO: Exibe o minuto da metade atual
+            const li = document.createElement('li');
+            li.textContent = `Parte ${event.half}, Minuto ${event.minuteInHalf} (Total: ${event.totalMinute}): ${event.eventType} (${event.option}) por ${event.player} (${event.team}) no ${event.setor}, no ${event.corredor}, em ${event.relativeZone}.`;
+            elements.eventList.appendChild(li);
+        }
+
+        function startSpeechRecognition() {
+            if (!('webkitSpeechRecognition' in window)) {
+                alert('Reconhecimento de voz não suportado. Use Google Chrome.');
+                return;
+            }
+            const recognition = new webkitSpeechRecognition();
+            recognition.lang = 'pt-PT';
+            recognition.onresult = (e) => {
+                const note = e.results[0][0].transcript;
+                if (appState.events.length > 0) {
+                    appState.events[appState.events.length - 1].note = note;
+                    elements.eventList.lastChild.textContent += ` | Nota: ${note}`;
+                }
+            };
+            recognition.start();
+        }
+
+        function exportCSV(filename) {
+            let csv = 'Parte,Minuto_Metade,Minuto_Total,Evento,Opção,Equipa,Jogador,Setor,Corredor,Zona_Relativa,Nota\n';
+            appState.events.forEach(e => {
+                csv += `${e.half},${e.minuteInHalf},${e.totalMinute},${e.eventType},${e.option},${e.team},${e.player},"${e.setor}","${e.corredor}","${e.relativeZone}","${e.note}"\n`;
+            });
+            csv += `\n,Posse de Bola,Casa,,${appState.possession.casaTime}s,,,`;
+            csv += `\n,Posse de Bola,Fora,,${appState.possession.foraTime}s,,,`;
+            
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename || 'eventos_jogo.csv';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        // 5. Inicialização e Event Listeners
+        function init() {
+            drawField();
+            elements.canvas.addEventListener('mousedown', handleInputEvent);
+            elements.canvas.addEventListener('touchstart', handleInputEvent);
+
+            elements.setup.querySelectorAll('button[data-team="Casa"]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const side = btn.dataset.side;
+                    setDefense('Casa', side);
+                    elements.setup.querySelectorAll('button').forEach(b => b.classList.remove('selected'));
+                    btn.classList.add('selected');
+                });
+            });
+
+            elements.startGameBtn.addEventListener('click', startGame);
+            
+            elements.teamCasaBtn.addEventListener('click', () => startPossession('Casa'));
+            elements.teamForaBtn.addEventListener('click', () => startPossession('Fora'));
+
+            elements.eventMenu.querySelectorAll('button[data-event]').forEach(btn => {
+                btn.addEventListener('click', showSubMenu);
+            });
+
+            elements.startMatchBtn.addEventListener('click', startMatch);
+            elements.endFirstHalfBtn.addEventListener('click', endFirstHalf);
+            elements.startSecondHalfBtn.addEventListener('click', startSecondHalf);
+            elements.endMatchBtn.addEventListener('click', endMatch);
+
+            document.getElementById('export-csv').addEventListener('click', () => exportCSV('eventos_jogo.csv'));
+            document.getElementById('voice-note').addEventListener('click', startSpeechRecognition);
+        }
+
+        init();
+    </script>
+</body>
+</html>
