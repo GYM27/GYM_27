@@ -1,0 +1,1 @@
+Ferramenta basica para usar num computador ou dispositivo movel para uso pessoal, simples para analise de um jogo de futebol ao vivo para registo de acontecimentos mais importantes de um jogo para posterior analise.
